@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>Nota</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="note">
+    <div class="note-header" id="drag-handle">
+      <span class="pin" id="pin-btn" title="Always on top">📌</span>
+      <span class="spacer"></span>
+      <button class="icon-btn" id="close-btn" title="Apagar nota">×</button>
+    </div>
+    <textarea id="content" placeholder="É isto que tens de fazer..."></textarea>
+    <div class="note-footer" id="debug-footer"></div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

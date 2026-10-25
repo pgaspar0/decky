@@ -1,0 +1,18 @@
+{
+  "name": "decky",
+  "version": "0.1.0",
+  "description": "Sticky notes sempre visiveis no desktop (Linux/Ubuntu) - Electron + electron-store",
+  "private": true,
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron . --no-sandbox",
+    "start:x11": "electron . --ozone-platform=x11",
+    "start:wayland": "electron . --ozone-platform=wayland"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "electron": "^44.2.0"
+  }
+}
