@@ -2,10 +2,18 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen } = require
 const path = require('path');
 const Store = require('electron-store');
 
+// --- Diagnostico de sessao ---
 console.log('--- Diagnostico de sessao ---');
 console.log('XDG_SESSION_TYPE:', process.env.XDG_SESSION_TYPE || '(nao definido)');
 console.log('ELECTRON_OZONE_PLATFORM_HINT:', process.env.ELECTRON_OZONE_PLATFORM_HINT || '(nao definido)');
 console.log('------------------------------');
+
+// --- Bloqueio de Instancia Unica (Single Instance Lock) ---
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('Outra instancia do Decky ja esta em execucao. A encerrar...');
+  app.quit();
+}
 
 const store = new Store({
   name: 'notes',
@@ -21,7 +29,24 @@ function genId() {
 }
 
 function getNotes() {
-  return store.get('notes');
+  return store.get('notes') || [];
+}
+
+function getNotesWithStatus() {
+  const notes = getNotes();
+  return notes.map((n) => ({
+    ...n,
+    isOpen: noteWindows.has(n.id),
+  }));
+}
+
+function broadcastNotesUpdated() {
+  const notesWithStatus = getNotesWithStatus();
+  for (const win of noteWindows.values()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('notes:updated', notesWithStatus);
+    }
+  }
 }
 
 function saveNote(partial) {
@@ -49,19 +74,31 @@ function nextSpawnPosition() {
 }
 
 function createNoteWindow(noteData) {
+  if (noteWindows.has(noteData.id)) {
+    const existing = noteWindows.get(noteData.id);
+    if (!existing.isDestroyed()) {
+      if (existing.isMinimized()) existing.restore();
+      existing.show();
+      existing.focus();
+      return existing;
+    }
+  }
+
+  const isAlwaysOnTop = noteData.alwaysOnTop !== false;
+
   const win = new BrowserWindow({
     x: noteData.x,
     y: noteData.y,
     width: noteData.width || 260,
     height: noteData.height || 220,
-    minWidth: 160,
+    minWidth: 180,
     minHeight: 140,
     frame: false,
     resizable: true,
-    alwaysOnTop: !!noteData.alwaysOnTop,
+    alwaysOnTop: isAlwaysOnTop,
     skipTaskbar: true,
-    backgroundColor: '#00000000',
-    transparent: false, // muda para true se quiseres cantos arredondados reais; custa performance/compatibilidade
+    backgroundColor: '#ffe14d',
+    transparent: false,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -75,31 +112,34 @@ function createNoteWindow(noteData) {
 
   win.once('ready-to-show', () => {
     win.show();
+    if (isAlwaysOnTop) {
+      win.setAlwaysOnTop(true, 'floating');
+      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
     win.webContents.send('note:init', noteData);
+    broadcastNotesUpdated();
   });
 
-  // --- Persistencia de posicao/tamanho -------------------------------------
-  // No X11 (ou XWayland) isto funciona sem drama: getBounds() devolve a
-  // posicao real apos o utilizador largar o rato.
-  // No Wayland nativo, getBounds() devolve sempre {x:0, y:0, ...} -- e por
-  // design do protocolo, nao um bug do Electron. Se vires SEMPRE x:0,y:0 no
-  // log abaixo mesmo depois de arrastares a nota para outro sitio, confirma
-  // que estas em Wayland nativo -> corre com `npm run start:x11`.
+  // --- Persistencia de posicao/tamanho com debounce seguro ---
   let saveTimer = null;
   const scheduleSave = () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      const bounds = win.getBounds();
-      console.log(`[${noteData.id}] a guardar bounds:`, bounds);
-      saveNote({ id: noteData.id, ...bounds });
-      win.webContents.send('note:bounds', bounds);
+      if (!win.isDestroyed()) {
+        const bounds = win.getBounds();
+        saveNote({ id: noteData.id, ...bounds });
+        win.webContents.send('note:bounds', bounds);
+      }
     }, 400);
   };
+
   win.on('move', scheduleSave);
   win.on('resize', scheduleSave);
 
   win.on('closed', () => {
+    clearTimeout(saveTimer);
     noteWindows.delete(noteData.id);
+    broadcastNotesUpdated();
   });
 
   noteWindows.set(noteData.id, win);
@@ -109,12 +149,21 @@ function createNoteWindow(noteData) {
 function openAllNotes() {
   const notes = getNotes();
   if (notes.length === 0) {
-    createAndOpenNote(); // primeira execucao: cria uma nota de boas-vindas
+    createAndOpenNote();
     return;
   }
-  notes.forEach((n) => {
-    if (!noteWindows.has(n.id)) createNoteWindow(n);
-  });
+  // Abre as notas que estavam abertas, ou a mais recente caso todas estivessem fechadas
+  const openable = notes.filter((n) => n.isOpen !== false);
+  if (openable.length === 0) {
+    const sorted = [...notes].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    const target = sorted[0];
+    saveNote({ id: target.id, isOpen: true });
+    createNoteWindow(target);
+  } else {
+    openable.forEach((n) => {
+      if (!noteWindows.has(n.id)) createNoteWindow(n);
+    });
+  }
 }
 
 function createAndOpenNote(content = '') {
@@ -129,6 +178,7 @@ function createAndOpenNote(content = '') {
     color: '#ffe14d',
     alwaysOnTop: true,
     completed: false,
+    isOpen: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -136,6 +186,7 @@ function createAndOpenNote(content = '') {
   notes.push(note);
   store.set('notes', notes);
   createNoteWindow(note);
+  broadcastNotesUpdated();
   return note;
 }
 
@@ -151,43 +202,111 @@ function buildTray() {
       click: () => noteWindows.forEach((w) => w.hide()),
     },
     { type: 'separator' },
-    { label: 'Sair', click: () => app.quit() },
+    { label: 'Sair do Decky', click: () => app.quit() },
   ]);
   tray.setContextMenu(menu);
   tray.on('click', () => openAllNotes());
 }
 
 // --- IPC ---------------------------------------------------------------
+ipcMain.handle('notes:get-all', () => {
+  return getNotesWithStatus();
+});
+
+ipcMain.handle('notes:create', (_e, content = '') => {
+  return createAndOpenNote(content);
+});
+
+ipcMain.handle('notes:open', (_e, { id }) => {
+  const win = noteWindows.get(id);
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    return true;
+  }
+  const notes = getNotes();
+  const target = notes.find((n) => n.id === id);
+  if (target) {
+    saveNote({ id, isOpen: true });
+    createNoteWindow(target);
+    broadcastNotesUpdated();
+    return true;
+  }
+  return false;
+});
+
 ipcMain.handle('notes:update-content', (_e, { id, content }) => {
   saveNote({ id, content });
+  broadcastNotesUpdated();
+});
+
+ipcMain.handle('notes:close-window', (_e, { id, content }) => {
+  if (typeof content === 'string') {
+    // Se a nota nao tiver texto, apaga-a para nao encher o historico de notas vazias
+    if (!content.trim()) {
+      deleteNoteFromStore(id);
+    } else {
+      saveNote({ id, content, isOpen: false });
+    }
+  } else {
+    saveNote({ id, isOpen: false });
+  }
+
+  const win = noteWindows.get(id);
+  if (win && !win.isDestroyed()) {
+    win.close();
+  }
+  broadcastNotesUpdated();
 });
 
 ipcMain.handle('notes:delete', (_e, { id }) => {
   const win = noteWindows.get(id);
-  if (win) win.close();
+  if (win && !win.isDestroyed()) {
+    win.close();
+  }
   deleteNoteFromStore(id);
+  broadcastNotesUpdated();
 });
 
 ipcMain.handle('notes:toggle-always-on-top', (_e, { id }) => {
   const win = noteWindows.get(id);
-  if (!win) return null;
+  if (!win || win.isDestroyed()) return null;
   const next = !win.isAlwaysOnTop();
-  // Nota: no Wayland nativo esta chamada e ignorada silenciosamente.
-  win.setAlwaysOnTop(next);
+  win.setAlwaysOnTop(next, 'floating');
+  win.setVisibleOnAllWorkspaces(next, { visibleOnFullScreen: true });
   saveNote({ id, alwaysOnTop: next });
   return next;
+});
+
+ipcMain.handle('app:quit', () => {
+  app.quit();
 });
 
 ipcMain.handle('diagnostics:get', () => ({
   sessionType: process.env.XDG_SESSION_TYPE || null,
 }));
 
-app.whenReady().then(() => {
-  buildTray();
-  openAllNotes();
-});
+if (gotTheLock) {
+  app.on('second-instance', () => {
+    // Quando invocado pela segunda vez, cria uma nova nota para o utilizador
+    const note = createAndOpenNote();
+    const win = noteWindows.get(note.id);
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    }
+  });
 
-app.on('window-all-closed', (e) => {
-  // A app deve continuar viva no tray mesmo sem notas abertas.
-  e.preventDefault?.();
-});
+  app.whenReady().then(() => {
+    buildTray();
+    openAllNotes();
+  });
+
+  app.on('window-all-closed', () => {
+    // Quando todas as janelas de notas forem fechadas, a aplicacao encerra
+    // libertando o terminal sem necessidade de Ctrl+C.
+    app.quit();
+  });
+}

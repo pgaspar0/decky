@@ -3,18 +3,36 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
-  <title>Nota</title>
+  <title>Decky</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="note">
     <div class="note-header" id="drag-handle">
-      <span class="pin" id="pin-btn" title="Always on top">📌</span>
+      <button class="icon-btn" id="menu-btn" title="Notas anteriores">☰</button>
+      <button class="icon-btn" id="new-btn" title="Nova nota">+</button>
       <span class="spacer"></span>
-      <button class="icon-btn" id="close-btn" title="Apagar nota">×</button>
+      <span class="pin" id="pin-btn" title="Sempre no topo e em todos os ambientes">📌</span>
+      <button class="icon-btn" id="close-btn" title="Fechar nota">×</button>
     </div>
+
     <textarea id="content" placeholder="É isto que tens de fazer..."></textarea>
-    <div class="note-footer" id="debug-footer"></div>
+
+    <!-- Gaveta do Menu Hambúrguer -->
+    <div class="drawer" id="drawer" hidden>
+      <div class="drawer-header" id="drawer-drag-handle">
+        <button class="icon-btn" id="drawer-back-btn" title="Voltar à nota">←</button>
+        <span class="drawer-title">Notas Anteriores</span>
+        <button class="icon-btn" id="drawer-new-btn" title="Nova nota">+</button>
+      </div>
+      <div class="drawer-search">
+        <input type="text" id="search-input" placeholder="Pesquisar notas..." autocomplete="off" />
+      </div>
+      <div class="drawer-list" id="drawer-list"></div>
+      <div class="drawer-footer">
+        <button class="footer-btn quit-btn" id="quit-btn">Sair do Decky</button>
+      </div>
+    </div>
   </div>
   <script src="renderer.js"></script>
 </body>

@@ -7,11 +7,11 @@ Stack: Electron + `electron-store`, renderer em HTML/CSS/JS simples.
 
 ## Estado
 
-Versão `0.1.0`, MVP em desenvolvimento.
+Versão `0.2.0`. Suporte a instância única, persistência em todos os ambientes de trabalho (workspaces), menu hambúrguer com histórico de notas e encerramento limpo do processo.
 
 ## Requisitos e instalação
 
-- Ubuntu (GNOME) com sessão X11 (não testado em Wayland).
+- Ubuntu (GNOME) com sessão X11 ou XWayland.
 - Node.js (versão recente) e npm.
 
 ```bash
@@ -21,17 +21,23 @@ npm run start
 
 ## Utilização
 
-- **Tray**: *Nova nota*, *Mostrar todas*, *Esconder todas*, *Sair*. Clicar no
-  ícone mostra as notas. Na primeira execução é criada uma nota automaticamente.
-- **Nota**: arrasta pela barra superior, redimensiona pelas bordas, escreve
-  directamente (guarda sozinho ~300 ms depois de parares).
-- **📌** alterna "sempre por cima". **×** apaga a nota, sem confirmação e sem
-  forma de a recuperar.
+- **Cabeçalho da Nota**:
+  - **☰ (Menu Hambúrguer)**: abre a gaveta com as notas anteriores, pesquisa em tempo real, botão de criar nova nota e botão de sair da aplicação.
+  - **+ (Nova Nota)**: cria imediatamente uma nova nota adesiva no ecrã.
+  - **Barra Central**: arrasta a nota pelo ecrã.
+  - **📌 (Always on Top)**: fixa a nota no topo de todas as janelas e em todos os ambientes de trabalho (workspaces virtuais com `Ctrl+Alt+Setas`).
+  - **× (Fechar Nota)**: fecha a janela da nota guardando o conteúdo no histórico ("Notas Anteriores"). Se a nota estiver vazia, é descartada. Se fechar a última nota aberta, o processo da aplicação termina automaticamente.
+- **Gaveta de Notas Anteriores**:
+  - Lista com scroll de todas as notas guardadas, com indicação de data/hora e se a nota já está aberta no ecrã.
+  - Clicar numa nota reabre-a ou foca a sua janela.
+  - Ícone de lixeira (**🗑**) para apagar definitivamente a nota do disco.
+  - Botão **Sair do Decky** para encerrar todas as notas e terminar o processo.
+- **Tray**: opções rápidas no painel do sistema (*Nova nota*, *Mostrar todas*, *Esconder todas*, *Sair*).
 
 ## Dados
 
 As notas ficam num ficheiro JSON gerido pelo `electron-store`, normalmente em
-`~/.config/decky/notes.json` (confirma com `ls ~/.config/decky`).
+`~/.config/decky/notes.json`.
 
 Formato de cada nota:
 
@@ -42,6 +48,7 @@ Formato de cada nota:
   "x": 60, "y": 60, "width": 260, "height": 220,
   "color": "#ffe14d",
   "alwaysOnTop": true,
+  "isOpen": true,
   "completed": false,
   "createdAt": 0,
   "updatedAt": 0
@@ -52,57 +59,22 @@ Formato de cada nota:
 
 ```
 src/
-├── main/       processo principal: janelas, tray, store, IPC
+├── main/       processo principal: janelas, tray, store, IPC, single instance
 │   └── assets/icon.png
-├── preload/    API mínima exposta ao renderer (contextIsolation activo)
-└── renderer/   UI de uma nota (HTML/CSS/JS)
+├── preload/    API exposta ao renderer via contextBridge
+└── renderer/   UI da nota e gaveta de notas (HTML/CSS/JS)
 ```
-
-O renderer corre isolado (`contextIsolation`, sem Node, `sandbox`) e só fala
-com o main através de `window.notesAPI`.
 
 | Canal IPC | Direcção | Função |
 |---|---|---|
-| `notes:update-content` | renderer → main | guarda o texto da nota |
-| `notes:delete` | renderer → main | fecha a janela e apaga a nota do store |
-| `notes:toggle-always-on-top` | renderer → main | alterna "sempre por cima" e guarda |
-| `diagnostics:get` | renderer → main | devolve `XDG_SESSION_TYPE` (andaime do teste Wayland) |
+| `notes:get-all` | renderer → main | devolve todas as notas guardadas com estado de abertura |
+| `notes:create` | renderer → main | cria e abre uma nova nota |
+| `notes:open` | renderer → main | abre ou foca uma nota existente pelo ID |
+| `notes:close-window` | renderer → main | fecha a janela da nota, guardando no histórico |
+| `notes:delete` | renderer → main | fecha a janela e remove a nota permanentemente do store |
+| `notes:update-content` | renderer → main | atualiza o conteúdo da nota |
+| `notes:toggle-always-on-top` | renderer → main | alterna "sempre por cima" e visibilidade em todos os workspaces |
+| `app:quit` | renderer → main | encerra o Electron e liberta o terminal |
 | `note:init` | main → renderer | envia os dados da nota ao abrir |
 | `note:bounds` | main → renderer | envia a posição/tamanho guardados |
-
-## Scripts
-
-| Script | O que faz |
-|---|---|
-| `npm run start` | arranque normal; é o único necessário |
-| `npm run start:x11` | força a plataforma X11/XWayland (diagnóstico) |
-| `npm run start:wayland` | força Wayland; falha numa sessão sem compositor Wayland |
-
-## Limitações conhecidas
-
-Não corrigidas; ordenadas por impacto provável.
-
-1. **Sem instância única.** Correr a app duas vezes abre dois processos, dois
-   ícones de tray e duas escritas no mesmo ficheiro. Falta
-   `app.requestSingleInstanceLock()`. Importa antes de existir arranque
-   automático.
-2. **Erro possível após fechar uma nota.** Se a janela fechar menos de 400 ms
-   depois de um `move`/`resize`, o temporizador de debounce chama `getBounds()`
-   numa janela já destruída e lança um erro. Falta `clearTimeout` no evento
-   `closed`.
-3. **Últimos caracteres podem perder-se ao sair.** O texto é gravado 300 ms
-   depois de escrever; sair pelo tray nesse intervalo perde o que foi escrito.
-4. **Andaime do teste ainda na UI.** O rodapé da nota mostra `sessao:`/`pos:` e
-   há o canal `diagnostics:get`. Ruído para quem usa a app.
-5. **Campos sem uso.** `color` e `completed` são guardados, mas a UI ignora-os.
-6. **Wayland nativo não validado.** Todos os testes foram em X11. Ver
-   `docs/CONTEXTO.md`, secção 4.
-7. **Sem arranque automático nem atalho global.**
-
-## Próximos passos
-
-1. Limpar o andaime do teste (rodapé, `diagnostics:get`, scripts `start:*`,
-   comentários sobre Wayland em `src/main/index.js`).
-2. Corrigir as limitações 1 a 3.
-3. Implementar fluxo que está como promessa.
-4. Só depois: cores, atalho global, arranque automático.
+| `notes:updated` | main → renderer | notifica alterações na lista de notas para atualizar a UI |
