@@ -85,19 +85,20 @@ function createNoteWindow(noteData) {
   }
 
   const isAlwaysOnTop = noteData.alwaysOnTop !== false;
+  const noteColor = noteData.color || '#ffe14d';
 
   const win = new BrowserWindow({
     x: noteData.x,
     y: noteData.y,
-    width: noteData.width || 260,
-    height: noteData.height || 220,
-    minWidth: 180,
-    minHeight: 140,
+    width: noteData.width || 280,
+    height: noteData.height || 240,
+    minWidth: 200,
+    minHeight: 150,
     frame: false,
     resizable: true,
     alwaysOnTop: isAlwaysOnTop,
     skipTaskbar: true,
-    backgroundColor: '#ffe14d',
+    backgroundColor: noteColor,
     transparent: false,
     show: false,
     webPreferences: {
@@ -146,24 +147,33 @@ function createNoteWindow(noteData) {
   return win;
 }
 
+// No arranque, abre APENAS a nota mais recente em vez de abrir todas as anteriores.
+function openInitialNote() {
+  const notes = getNotes();
+  if (notes.length === 0) {
+    createAndOpenNote();
+    return;
+  }
+  // Ordenar por data da última atualização para abrir a nota mais recente
+  const sorted = [...notes].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  const target = sorted[0];
+  saveNote({ id: target.id, isOpen: true });
+  createNoteWindow(target);
+}
+
+// Abre todas as notas (usado explicitamente pelo menu do Tray)
 function openAllNotes() {
   const notes = getNotes();
   if (notes.length === 0) {
     createAndOpenNote();
     return;
   }
-  // Abre as notas que estavam abertas, ou a mais recente caso todas estivessem fechadas
-  const openable = notes.filter((n) => n.isOpen !== false);
-  if (openable.length === 0) {
-    const sorted = [...notes].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-    const target = sorted[0];
-    saveNote({ id: target.id, isOpen: true });
-    createNoteWindow(target);
-  } else {
-    openable.forEach((n) => {
-      if (!noteWindows.has(n.id)) createNoteWindow(n);
-    });
-  }
+  notes.forEach((n) => {
+    if (!noteWindows.has(n.id)) {
+      saveNote({ id: n.id, isOpen: true });
+      createNoteWindow(n);
+    }
+  });
 }
 
 function createAndOpenNote(content = '') {
@@ -173,8 +183,8 @@ function createAndOpenNote(content = '') {
     content,
     x: spawn.x,
     y: spawn.y,
-    width: 260,
-    height: 220,
+    width: 280,
+    height: 240,
     color: '#ffe14d',
     alwaysOnTop: true,
     completed: false,
@@ -196,7 +206,7 @@ function buildTray() {
   tray.setToolTip('Decky');
   const menu = Menu.buildFromTemplate([
     { label: 'Nova nota', click: () => createAndOpenNote() },
-    { label: 'Mostrar todas', click: () => openAllNotes() },
+    { label: 'Mostrar todas as notas', click: () => openAllNotes() },
     {
       label: 'Esconder todas',
       click: () => noteWindows.forEach((w) => w.hide()),
@@ -205,7 +215,7 @@ function buildTray() {
     { label: 'Sair do Decky', click: () => app.quit() },
   ]);
   tray.setContextMenu(menu);
-  tray.on('click', () => openAllNotes());
+  tray.on('click', () => openInitialNote());
 }
 
 // --- IPC ---------------------------------------------------------------
@@ -236,9 +246,15 @@ ipcMain.handle('notes:open', (_e, { id }) => {
   return false;
 });
 
+// Otimização de Performance: apenas grava em background sem emitir broadcast a cada tecla
 ipcMain.handle('notes:update-content', (_e, { id, content }) => {
   saveNote({ id, content });
+});
+
+ipcMain.handle('notes:set-color', (_e, { id, color }) => {
+  saveNote({ id, color });
   broadcastNotesUpdated();
+  return color;
 });
 
 ipcMain.handle('notes:close-window', (_e, { id, content }) => {
@@ -301,7 +317,8 @@ if (gotTheLock) {
 
   app.whenReady().then(() => {
     buildTray();
-    openAllNotes();
+    // Arranque otimizado: abre apenas a nota mais recente
+    openInitialNote();
   });
 
   app.on('window-all-closed', () => {

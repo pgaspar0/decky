@@ -7,13 +7,24 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="note">
+  <div class="note" id="note-root">
     <div class="note-header" id="drag-handle">
-      <button class="icon-btn" id="menu-btn" title="Notas anteriores">☰</button>
-      <button class="icon-btn" id="new-btn" title="Nova nota">+</button>
+      <button class="icon-btn" id="menu-btn" title="Notas anteriores (Ctrl+H)">☰</button>
+      <button class="icon-btn" id="new-btn" title="Nova nota (Ctrl+N)">+</button>
+      <button class="icon-btn" id="color-btn" title="Mudar cor da nota">🎨</button>
       <span class="spacer"></span>
-      <span class="pin" id="pin-btn" title="Sempre no topo e em todos os ambientes">📌</span>
-      <button class="icon-btn" id="close-btn" title="Fechar nota">×</button>
+      <span class="pin" id="pin-btn" title="Fixar no topo e em todos os ambientes (Ctrl+P)">📌</span>
+      <button class="icon-btn" id="close-btn" title="Fechar nota (Ctrl+W)">×</button>
+    </div>
+
+    <!-- Seletor de Cores Popover -->
+    <div class="color-palette" id="color-palette" hidden>
+      <button class="color-dot" data-color="#ffe14d" style="background: #ffe14d;" title="Amarelo"></button>
+      <button class="color-dot" data-color="#bbf7d0" style="background: #bbf7d0;" title="Verde pastel"></button>
+      <button class="color-dot" data-color="#bae6fd" style="background: #bae6fd;" title="Azul pastel"></button>
+      <button class="color-dot" data-color="#fed7aa" style="background: #fed7aa;" title="Pêssego"></button>
+      <button class="color-dot" data-color="#e9d5ff" style="background: #e9d5ff;" title="Roxo suave"></button>
+      <button class="color-dot" data-color="#374151" style="background: #374151;" title="Escuro"></button>
     </div>
 
     <textarea id="content" placeholder="É isto que tens de fazer..."></textarea>
@@ -21,9 +32,9 @@
     <!-- Gaveta do Menu Hambúrguer -->
     <div class="drawer" id="drawer" hidden>
       <div class="drawer-header" id="drawer-drag-handle">
-        <button class="icon-btn" id="drawer-back-btn" title="Voltar à nota">←</button>
+        <button class="icon-btn" id="drawer-back-btn" title="Voltar à nota (Esc)">←</button>
         <span class="drawer-title">Notas Anteriores</span>
-        <button class="icon-btn" id="drawer-new-btn" title="Nova nota">+</button>
+        <button class="icon-btn" id="drawer-new-btn" title="Nova nota (Ctrl+N)">+</button>
       </div>
       <div class="drawer-search">
         <input type="text" id="search-input" placeholder="Pesquisar notas..." autocomplete="off" />

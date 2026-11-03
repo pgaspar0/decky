@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('notesAPI', {
   closeNoteWindow: (id, content) => ipcRenderer.invoke('notes:close-window', { id, content }),
   deleteNote: (id) => ipcRenderer.invoke('notes:delete', { id }),
   updateContent: (id, content) => ipcRenderer.invoke('notes:update-content', { id, content }),
+  setNoteColor: (id, color) => ipcRenderer.invoke('notes:set-color', { id, color }),
   toggleAlwaysOnTop: (id) => ipcRenderer.invoke('notes:toggle-always-on-top', { id }),
   quitApp: () => ipcRenderer.invoke('app:quit'),
   getDiagnostics: () => ipcRenderer.invoke('diagnostics:get'),
