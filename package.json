@@ -1,6 +1,6 @@
 {
   "name": "decky",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Sticky notes sempre visiveis no desktop (Linux/Ubuntu) - Electron + electron-store",
   "private": true,
   "main": "src/main/index.js",
