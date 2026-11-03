@@ -109,6 +109,8 @@ function createNoteWindow(noteData) {
     },
   });
 
+  win.currentNoteId = noteData.id;
+
   win.loadFile(path.join(__dirname, '../renderer/index.html'));
 
   win.once('ready-to-show', () => {
@@ -128,7 +130,8 @@ function createNoteWindow(noteData) {
     saveTimer = setTimeout(() => {
       if (!win.isDestroyed()) {
         const bounds = win.getBounds();
-        saveNote({ id: noteData.id, ...bounds });
+        const currentId = win.currentNoteId || noteData.id;
+        saveNote({ id: currentId, ...bounds });
         win.webContents.send('note:bounds', bounds);
       }
     }, 400);
@@ -139,7 +142,8 @@ function createNoteWindow(noteData) {
 
   win.on('closed', () => {
     clearTimeout(saveTimer);
-    noteWindows.delete(noteData.id);
+    const currentId = win.currentNoteId || noteData.id;
+    noteWindows.delete(currentId);
     broadcastNotesUpdated();
   });
 
@@ -176,10 +180,11 @@ function openAllNotes() {
   });
 }
 
-function createAndOpenNote(content = '') {
+function createAndOpenNote(content = '', title = '') {
   const spawn = nextSpawnPosition();
   const note = {
     id: genId(),
+    title,
     content,
     x: spawn.x,
     y: spawn.y,
@@ -223,8 +228,81 @@ ipcMain.handle('notes:get-all', () => {
   return getNotesWithStatus();
 });
 
-ipcMain.handle('notes:create', (_e, content = '') => {
-  return createAndOpenNote(content);
+ipcMain.handle('notes:create', (_e, content = '', title = '') => {
+  return createAndOpenNote(content, title);
+});
+
+// Criar nova nota na mesma janela ativa
+ipcMain.handle('notes:create-in-window', (e, { currentId }) => {
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  if (currentId) {
+    saveNote({ id: currentId, isOpen: false });
+    noteWindows.delete(currentId);
+  }
+
+  const currentBounds = senderWin && !senderWin.isDestroyed() ? senderWin.getBounds() : nextSpawnPosition();
+  const note = {
+    id: genId(),
+    title: '',
+    content: '',
+    x: currentBounds.x,
+    y: currentBounds.y,
+    width: currentBounds.width || 280,
+    height: currentBounds.height || 240,
+    color: '#ffe14d',
+    alwaysOnTop: senderWin && !senderWin.isDestroyed() ? senderWin.isAlwaysOnTop() : true,
+    completed: false,
+    isOpen: true,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const notes = getNotes();
+  notes.push(note);
+  store.set('notes', notes);
+
+  if (senderWin && !senderWin.isDestroyed()) {
+    senderWin.currentNoteId = note.id;
+    noteWindows.set(note.id, senderWin);
+  }
+
+  broadcastNotesUpdated();
+  return note;
+});
+
+// Abrir nota na janela atual ou focar se já estiver aberta noutra
+ipcMain.handle('notes:open-in-window', (e, { currentId, targetId }) => {
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  const notes = getNotes();
+  const target = notes.find((n) => n.id === targetId);
+  if (!target) return null;
+
+  if (noteWindows.has(targetId)) {
+    const existing = noteWindows.get(targetId);
+    if (existing && !existing.isDestroyed() && existing !== senderWin) {
+      if (existing.isMinimized()) existing.restore();
+      existing.show();
+      existing.focus();
+      return { switched: false, note: target };
+    }
+  }
+
+  if (currentId && currentId !== targetId) {
+    saveNote({ id: currentId, isOpen: false });
+    noteWindows.delete(currentId);
+  }
+
+  saveNote({ id: targetId, isOpen: true });
+  if (senderWin && !senderWin.isDestroyed()) {
+    senderWin.currentNoteId = targetId;
+    noteWindows.set(targetId, senderWin);
+    if (target.color) {
+      senderWin.setBackgroundColor(target.color);
+    }
+  }
+
+  broadcastNotesUpdated();
+  return { switched: true, note: target };
 });
 
 ipcMain.handle('notes:open', (_e, { id }) => {
@@ -246,6 +324,11 @@ ipcMain.handle('notes:open', (_e, { id }) => {
   return false;
 });
 
+ipcMain.handle('notes:update-title', (_e, { id, title }) => {
+  saveNote({ id, title });
+  broadcastNotesUpdated();
+});
+
 // Otimização de Performance: apenas grava em background sem emitir broadcast a cada tecla
 ipcMain.handle('notes:update-content', (_e, { id, content }) => {
   saveNote({ id, content });
@@ -257,16 +340,16 @@ ipcMain.handle('notes:set-color', (_e, { id, color }) => {
   return color;
 });
 
-ipcMain.handle('notes:close-window', (_e, { id, content }) => {
-  if (typeof content === 'string') {
-    // Se a nota nao tiver texto, apaga-a para nao encher o historico de notas vazias
-    if (!content.trim()) {
-      deleteNoteFromStore(id);
-    } else {
-      saveNote({ id, content, isOpen: false });
-    }
+ipcMain.handle('notes:close-window', (_e, { id, content, title }) => {
+  const note = getNotes().find((n) => n.id === id);
+  const text = typeof content === 'string' ? content : (note ? note.content : '');
+  const noteTitle = typeof title === 'string' ? title : (note ? note.title : '');
+
+  // Se a nota nao tiver texto nem titulo, apaga-a para nao encher o historico de notas vazias
+  if (!text.trim() && !noteTitle.trim()) {
+    deleteNoteFromStore(id);
   } else {
-    saveNote({ id, isOpen: false });
+    saveNote({ id, content: text, title: noteTitle, isOpen: false });
   }
 
   const win = noteWindows.get(id);
@@ -283,6 +366,95 @@ ipcMain.handle('notes:delete', (_e, { id }) => {
   }
   deleteNoteFromStore(id);
   broadcastNotesUpdated();
+});
+
+ipcMain.handle('notes:show-context-menu', (e, { id }) => {
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  if (!senderWin || senderWin.isDestroyed()) return;
+
+  const template = [
+    {
+      label: 'Nova nota (nesta janela)',
+      accelerator: 'CmdOrCtrl+N',
+      click: () => senderWin.webContents.send('note:action-new-same-window'),
+    },
+    {
+      label: 'Nova nota (em nova janela)',
+      accelerator: 'CmdOrCtrl+Shift+N',
+      click: () => createAndOpenNote(),
+    },
+    { type: 'separator' },
+    {
+      label: 'Fixar no topo',
+      type: 'checkbox',
+      checked: senderWin.isAlwaysOnTop(),
+      click: () => {
+        const next = !senderWin.isAlwaysOnTop();
+        senderWin.setAlwaysOnTop(next, 'floating');
+        senderWin.setVisibleOnAllWorkspaces(next, { visibleOnFullScreen: true });
+        if (id) saveNote({ id, alwaysOnTop: next });
+        senderWin.webContents.send('note:pin-updated', next);
+      },
+    },
+    {
+      label: 'Notas anteriores',
+      accelerator: 'CmdOrCtrl+H',
+      click: () => senderWin.webContents.send('note:action-toggle-drawer'),
+    },
+    { type: 'separator' },
+    {
+      label: 'Apagar esta nota',
+      click: () => {
+        if (id) {
+          senderWin.close();
+          deleteNoteFromStore(id);
+          broadcastNotesUpdated();
+        }
+      },
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  menu.popup({ window: senderWin });
+});
+
+ipcMain.handle('notes:show-drawer-item-context-menu', (e, { targetId }) => {
+  const senderWin = BrowserWindow.fromWebContents(e.sender);
+  if (!senderWin || senderWin.isDestroyed()) return;
+
+  const template = [
+    {
+      label: 'Abrir nesta janela',
+      click: () => senderWin.webContents.send('note:action-load-in-window', { targetId }),
+    },
+    {
+      label: 'Abrir em nova janela',
+      click: () => {
+        const notes = getNotes();
+        const target = notes.find((n) => n.id === targetId);
+        if (target) {
+          saveNote({ id: targetId, isOpen: true });
+          createNoteWindow(target);
+          broadcastNotesUpdated();
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Apagar nota',
+      click: () => {
+        const targetWin = noteWindows.get(targetId);
+        if (targetWin && !targetWin.isDestroyed()) {
+          targetWin.close();
+        }
+        deleteNoteFromStore(targetId);
+        broadcastNotesUpdated();
+      },
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  menu.popup({ window: senderWin });
 });
 
 ipcMain.handle('notes:toggle-always-on-top', (_e, { id }) => {

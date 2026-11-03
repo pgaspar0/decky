@@ -1,4 +1,5 @@
 const noteRoot = document.getElementById('note-root');
+const noteTitleInput = document.getElementById('note-title');
 const textarea = document.getElementById('content');
 const pinBtn = document.getElementById('pin-btn');
 const closeBtn = document.getElementById('close-btn');
@@ -54,25 +55,41 @@ function flushSave() {
     saveTimeout = null;
     if (noteId) {
       window.notesAPI.updateContent(noteId, textarea.value);
+      window.notesAPI.updateTitle(noteId, noteTitleInput.value);
     }
   }
 }
 
-window.notesAPI.onInit((data) => {
+function triggerAutoSave() {
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    if (noteId) {
+      window.notesAPI.updateContent(noteId, textarea.value);
+      window.notesAPI.updateTitle(noteId, noteTitleInput.value);
+    }
+    saveTimeout = null;
+  }, 300);
+}
+
+function loadNoteData(data) {
   noteId = data.id;
+  noteTitleInput.value = data.title || '';
   textarea.value = data.content || '';
   pinBtn.classList.toggle('active', data.alwaysOnTop !== false);
   applyColorTheme(data.color || '#ffe14d');
-  textarea.focus();
+}
+
+window.notesAPI.onInit((data) => {
+  loadNoteData(data);
+  if (data.title) {
+    textarea.focus();
+  } else {
+    noteTitleInput.focus();
+  }
 });
 
-textarea.addEventListener('input', () => {
-  clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(() => {
-    window.notesAPI.updateContent(noteId, textarea.value);
-    saveTimeout = null;
-  }, 300);
-});
+textarea.addEventListener('input', triggerAutoSave);
+noteTitleInput.addEventListener('input', triggerAutoSave);
 
 // Guardar sempre antes de descarregar a janela
 window.addEventListener('beforeunload', () => {
@@ -86,12 +103,27 @@ pinBtn.addEventListener('click', async () => {
 
 closeBtn.addEventListener('click', () => {
   flushSave();
-  window.notesAPI.closeNoteWindow(noteId, textarea.value);
+  window.notesAPI.closeNoteWindow(noteId, textarea.value, noteTitleInput.value);
 });
 
-newBtn.addEventListener('click', () => {
+// Criar nova nota na mesma janela ativa
+async function createNoteInCurrentWindow() {
+  flushSave();
+  const newNote = await window.notesAPI.createNoteInWindow(noteId);
+  if (newNote) {
+    loadNoteData(newNote);
+    noteTitleInput.focus();
+  }
+}
+
+// Criar nova nota em nova janela independente
+function createNoteInNewWindow() {
   flushSave();
   window.notesAPI.createNote();
+}
+
+newBtn.addEventListener('click', () => {
+  createNoteInCurrentWindow();
 });
 
 // --- Paleta de Cores ---
@@ -152,7 +184,9 @@ function renderDrawerList() {
   const filtered = allNotesCache
     .filter((n) => {
       if (!query) return true;
-      return (n.content || '').toLowerCase().includes(query);
+      const matchTitle = (n.title || '').toLowerCase().includes(query);
+      const matchContent = (n.content || '').toLowerCase().includes(query);
+      return matchTitle || matchContent;
     })
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
@@ -174,11 +208,79 @@ function renderDrawerList() {
     const info = document.createElement('div');
     info.className = 'note-item-info';
 
+    const titleEl = document.createElement('div');
+    titleEl.className = 'note-item-title';
+    titleEl.title = 'Clique para editar o título';
+    const hasTitle = note.title && note.title.trim();
+    titleEl.textContent = hasTitle ? note.title.trim() : (note.content && note.content.trim() ? getSnippet(note.content) : '(Sem título)');
+    if (!hasTitle) {
+      titleEl.style.opacity = '0.75';
+    }
+
+    // Edição inline do título ao clicar no título
+    titleEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (info.querySelector('.note-item-title-input')) return;
+
+      const titleInput = document.createElement('input');
+      titleInput.type = 'text';
+      titleInput.className = 'note-item-title-input';
+      titleInput.value = note.title || '';
+      titleInput.placeholder = 'Título...';
+      titleInput.maxLength = 80;
+
+      let committed = false;
+      const commit = (save = true) => {
+        if (committed) return;
+        committed = true;
+        if (save) {
+          const newTitle = titleInput.value.trim();
+          note.title = newTitle;
+          window.notesAPI.updateTitle(note.id, newTitle);
+          if (note.id === noteId) {
+            noteTitleInput.value = newTitle;
+          }
+          const hasNewTitle = Boolean(newTitle);
+          titleEl.textContent = hasNewTitle ? newTitle : (note.content && note.content.trim() ? getSnippet(note.content) : '(Sem título)');
+          titleEl.style.opacity = hasNewTitle ? '1' : '0.75';
+        }
+        if (titleInput.parentNode) {
+          info.replaceChild(titleEl, titleInput);
+        }
+      };
+
+      titleInput.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          commit(true);
+        } else if (ev.key === 'Escape') {
+          ev.preventDefault();
+          commit(false);
+        }
+      });
+
+      titleInput.addEventListener('blur', () => {
+        commit(true);
+      });
+
+      titleInput.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+      });
+
+      info.replaceChild(titleInput, titleEl);
+      titleInput.focus();
+      titleInput.select();
+    });
+
     const snippet = document.createElement('div');
     snippet.className = 'note-item-snippet';
     const isEmpty = !note.content || !note.content.trim();
-    if (isEmpty) snippet.classList.add('empty');
-    snippet.textContent = getSnippet(note.content);
+    if (isEmpty) {
+      snippet.classList.add('empty');
+      snippet.textContent = '(Sem conteúdo adicional)';
+    } else {
+      snippet.textContent = getSnippet(note.content);
+    }
 
     const meta = document.createElement('div');
     meta.className = 'note-item-meta';
@@ -196,11 +298,17 @@ function renderDrawerList() {
       meta.appendChild(badge);
     }
 
-    info.appendChild(snippet);
+    info.appendChild(titleEl);
+    if (hasTitle) {
+      info.appendChild(snippet);
+    }
     info.appendChild(meta);
     item.appendChild(info);
 
-    // Botão de Eliminar com Confirmação Inline
+    // Botão de Eliminar com Confirmação Inline Expansível
+    const deleteBox = document.createElement('div');
+    deleteBox.className = 'note-delete-box';
+
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'note-delete-btn';
     deleteBtn.title = 'Apagar nota';
@@ -208,7 +316,6 @@ function renderDrawerList() {
 
     const confirmBox = document.createElement('div');
     confirmBox.className = 'delete-confirm-box';
-    confirmBox.hidden = true;
 
     const yesBtn = document.createElement('button');
     yesBtn.className = 'confirm-btn yes';
@@ -223,8 +330,8 @@ function renderDrawerList() {
 
     deleteBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      deleteBtn.hidden = true;
-      confirmBox.hidden = false;
+      deleteBtn.classList.add('hidden');
+      confirmBox.classList.add('active');
     });
 
     yesBtn.addEventListener('click', (e) => {
@@ -234,20 +341,33 @@ function renderDrawerList() {
 
     noBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      confirmBox.hidden = true;
-      deleteBtn.hidden = false;
+      confirmBox.classList.remove('active');
+      deleteBtn.classList.remove('hidden');
     });
 
-    item.appendChild(deleteBtn);
-    item.appendChild(confirmBox);
+    deleteBox.appendChild(deleteBtn);
+    deleteBox.appendChild(confirmBox);
+    item.appendChild(deleteBox);
 
-    item.addEventListener('click', () => {
+    // Clique na nota para abrir nesta janela
+    item.addEventListener('click', async () => {
       if (note.id === noteId) {
         closeDrawer();
-      } else {
-        window.notesAPI.openNote(note.id);
-        closeDrawer();
+        return;
       }
+      flushSave();
+      const res = await window.notesAPI.openNoteInWindow(noteId, note.id);
+      if (res && res.switched) {
+        loadNoteData(res.note);
+      }
+      closeDrawer();
+    });
+
+    // Clique direito no item da nota
+    item.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      window.notesAPI.showDrawerItemContextMenu(note.id);
     });
 
     drawerList.appendChild(item);
@@ -281,8 +401,7 @@ menuBtn.addEventListener('click', toggleDrawer);
 drawerBackBtn.addEventListener('click', closeDrawer);
 
 drawerNewBtn.addEventListener('click', () => {
-  flushSave();
-  window.notesAPI.createNote();
+  createNoteInCurrentWindow();
   closeDrawer();
 });
 
@@ -302,6 +421,36 @@ window.notesAPI.onNotesUpdated((notes) => {
   }
 });
 
+// Ações disparadas pelo Menu de Contexto nativo
+window.notesAPI.onActionNewSameWindow(() => {
+  createNoteInCurrentWindow();
+});
+
+window.notesAPI.onActionToggleDrawer(() => {
+  toggleDrawer();
+});
+
+window.notesAPI.onActionLoadInWindow(async ({ targetId }) => {
+  flushSave();
+  const res = await window.notesAPI.openNoteInWindow(noteId, targetId);
+  if (res && res.switched) {
+    loadNoteData(res.note);
+  }
+  closeDrawer();
+});
+
+window.notesAPI.onPinUpdated((active) => {
+  pinBtn.classList.toggle('active', active);
+});
+
+// Context menu no corpo da janela
+window.addEventListener('contextmenu', (e) => {
+  if (e.target.closest('.note-item')) return;
+  e.preventDefault();
+  flushSave();
+  window.notesAPI.showContextMenu(noteId);
+});
+
 // --- Atalhos de Teclado Globais (Produtividade) ---
 window.addEventListener('keydown', (e) => {
   // Escape: fechar gaveta ou paleta de cores
@@ -317,11 +466,18 @@ window.addEventListener('keydown', (e) => {
     }
   }
 
-  // Ctrl + N: Nova nota
-  if (e.ctrlKey && e.key.toLowerCase() === 'n') {
+  // Ctrl + Shift + N: Nova nota em NOVA janela
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'n') {
     e.preventDefault();
-    flushSave();
-    window.notesAPI.createNote();
+    createNoteInNewWindow();
+    return;
+  }
+
+  // Ctrl + N: Nova nota na MESMA janela
+  if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'n') {
+    e.preventDefault();
+    createNoteInCurrentWindow();
+    if (!drawer.hidden) closeDrawer();
     return;
   }
 
@@ -336,7 +492,7 @@ window.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key.toLowerCase() === 'w') {
     e.preventDefault();
     flushSave();
-    window.notesAPI.closeNoteWindow(noteId, textarea.value);
+    window.notesAPI.closeNoteWindow(noteId, textarea.value, noteTitleInput.value);
     return;
   }
 

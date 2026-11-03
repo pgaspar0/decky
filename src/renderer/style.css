@@ -199,6 +199,30 @@ html, body {
   box-shadow: 0 0 0 2px #ffffff, 0 0 0 3px rgba(0, 0, 0, 0.5);
 }
 
+.note-title-wrapper {
+  -webkit-app-region: no-drag;
+  padding: 6px 10px 0 10px;
+}
+
+.note-title-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--note-text);
+  outline: none;
+  padding: 0;
+  user-select: text;
+}
+
+.note-title-input::placeholder {
+  color: var(--note-placeholder);
+  font-weight: 500;
+  opacity: 0.8;
+}
+
 textarea#content {
   -webkit-app-region: no-drag;
   user-select: text;
@@ -206,7 +230,7 @@ textarea#content {
   border: none;
   resize: none;
   background: transparent;
-  padding: 10px;
+  padding: 6px 10px 10px 10px;
   font-size: 14px;
   line-height: 1.45;
   font-family: inherit;
@@ -325,16 +349,51 @@ textarea#content::placeholder {
   gap: 2px;
 }
 
-.note-item-snippet {
+.note-item-title {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--note-text);
+  cursor: text;
+  border-radius: 2px;
+  padding: 1px 2px;
+  transition: background 0.12s;
+  display: inline-block;
+  max-width: 100%;
+}
+.note-item-title:hover {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.note-item-title-input {
+  width: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--note-text);
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #6366f1;
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
+  -webkit-app-region: no-drag;
+  user-select: text;
+}
+
+.note-item-snippet {
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
 }
 .note-item-snippet.empty {
   font-style: italic;
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
 .note-item-meta {
@@ -357,30 +416,52 @@ textarea#content::placeholder {
   color: #ffffff;
 }
 
+.note-delete-box {
+  display: flex;
+  align-items: center;
+  margin-left: 6px;
+}
+
 .note-delete-btn {
   border: none;
   background: transparent;
-  font-size: 12px;
+  font-size: 13px;
   padding: 3px 5px;
   cursor: pointer;
   border-radius: 3px;
   opacity: 0.45;
   color: #ef4444;
   transition: opacity 0.12s, background 0.12s;
-  margin-left: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .note-delete-btn:hover {
   opacity: 1;
   background: rgba(239, 68, 68, 0.15);
 }
+.note-delete-btn.hidden,
+.note-delete-btn[hidden] {
+  display: none !important;
+}
 
-/* Confirmação Inline de Exclusão */
+/* Confirmação Inline de Exclusão: oculta por defeito, expande ao clicar no balde */
 .delete-confirm-box {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 4px;
-  margin-left: 6px;
-  animation: fadeIn 0.1s ease-out;
+}
+.delete-confirm-box.active {
+  display: flex;
+  animation: expandIn 0.15s ease-out;
+}
+.delete-confirm-box[hidden] {
+  display: none !important;
+}
+
+@keyframes expandIn {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1); }
 }
 .confirm-btn {
   border: none;

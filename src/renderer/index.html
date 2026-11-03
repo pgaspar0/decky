@@ -10,7 +10,7 @@
   <div class="note" id="note-root">
     <div class="note-header" id="drag-handle">
       <button class="icon-btn" id="menu-btn" title="Notas anteriores (Ctrl+H)">☰</button>
-      <button class="icon-btn" id="new-btn" title="Nova nota (Ctrl+N)">+</button>
+      <button class="icon-btn" id="new-btn" title="Nova nota (Ctrl+N, Ctrl+Shift+N para nova janela)">+</button>
       <button class="icon-btn" id="color-btn" title="Mudar cor da nota">🎨</button>
       <span class="spacer"></span>
       <span class="pin" id="pin-btn" title="Fixar no topo e em todos os ambientes (Ctrl+P)">📌</span>
@@ -27,6 +27,10 @@
       <button class="color-dot" data-color="#374151" style="background: #374151;" title="Escuro"></button>
     </div>
 
+    <div class="note-title-wrapper">
+      <input type="text" id="note-title" class="note-title-input" placeholder="Título..." maxlength="80" autocomplete="off" />
+    </div>
+
     <textarea id="content" placeholder="É isto que tens de fazer..."></textarea>
 
     <!-- Gaveta do Menu Hambúrguer -->
@@ -34,7 +38,7 @@
       <div class="drawer-header" id="drawer-drag-handle">
         <button class="icon-btn" id="drawer-back-btn" title="Voltar à nota (Esc)">←</button>
         <span class="drawer-title">Notas Anteriores</span>
-        <button class="icon-btn" id="drawer-new-btn" title="Nova nota (Ctrl+N)">+</button>
+        <button class="icon-btn" id="drawer-new-btn" title="Nova nota nesta janela (Ctrl+N)">+</button>
       </div>
       <div class="drawer-search">
         <input type="text" id="search-input" placeholder="Pesquisar notas..." autocomplete="off" />
